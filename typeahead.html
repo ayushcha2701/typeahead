@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Typeahead Search</title>
+<style>
+  :root {
+    --bg: #F5F7FB;
+    --surface: #FFFFFF;
+    --ink: #172033;
+    --muted: #677189;
+    --line: #DCE1EC;
+    --accent: #2447D6;
+    --hover: #EEF2FF;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 22vh 20px 40px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  .search { width: 100%; max-width: 600px; }
+
+  .logo {
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  .caret {
+    display: inline-block;
+    width: 3px;
+    height: 0.9em;
+    margin-left: 4px;
+    vertical-align: -0.08em;
+    background: var(--accent);
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+
+  .box { position: relative; }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 56px;
+    padding: 0 8px 0 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36, 71, 214, 0.15); }
+  .field > svg { color: var(--muted); flex-shrink: 0; }
+  .field input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    font: inherit;
+    font-size: 1.05rem;
+    color: var(--ink);
+  }
+  .clear {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .clear:focus-visible, .submit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .submit {
+    height: 40px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .suggestions {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    list-style: none;
+    padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(23, 32, 51, 0.08);
+  }
+  .suggestions[hidden] { display: none; }
+  .suggestions li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .suggestions li:hover, .suggestions li.active { background: var(--hover); }
+  .suggestions li svg { color: var(--muted); flex-shrink: 0; }
+  .rest { font-weight: 650; }
+
+  .hint { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top: 18px; }
+
+  @media (max-width: 480px) {
+    body { padding-top: 14vh; }
+    .logo { font-size: 2.1rem; }
+    .submit { padding: 0 14px; }
+  }
+</style>
+</head>
+<body>
+  <main class="search">
+    <h1 class="logo">typeahead<span class="caret" aria-hidden="true"></span></h1>
+
+    <form class="box" id="form" role="search" autocomplete="off">
+      <div class="field">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="input" type="text" placeholder="Search" aria-label="Search"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list">
+        <button type="button" class="clear" id="clear" aria-label="Clear search" hidden>&times;</button>
+        <button type="submit" class="submit">Search</button>
+      </div>
+      <ul class="suggestions" id="list" role="listbox" hidden></ul>
+    </form>
+
+    <p class="hint">Suggestions appear as you type. Use ↑ ↓ to move and Enter to select.</p>
+  </main>
+
+<script>
+  const API = "http://localhost:8080/api";
+
+  // GET /api/suggestions?prefix=sa  ->  { "suggestions": [...] }
+  async function getSuggestions(prefix) {
+    const res = await fetch(`${API}/suggestions?prefix=${encodeURIComponent(prefix)}`);
+    if (!res.ok) throw new Error(`suggestions failed: ${res.status}`);
+    const data = await res.json();
+    return data.suggestions || [];
+  }
+
+  // POST /api/search  { "query": "..." }  ->  202, no body
+  async function handleQuery(query) {
+    const res = await fetch(`${API}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query })
+    });
+    if (!res.ok) throw new Error(`search failed: ${res.status}`);
+  }
+
+  const input = document.getElementById("input");
+  const list = document.getElementById("list");
+  const clearBtn = document.getElementById("clear");
+  const form = document.getElementById("form");
+  const icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+  let items = [];
+  let active = -1;
+
+  const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  let seq = 0;      // guards against a slow reply overwriting a newer one
+  let timer = null; // debounce
+
+  async function render() {
+    const prefix = input.value.trim();
+    clearBtn.hidden = !input.value;
+
+    if (!prefix) { items = []; paint(""); return; }
+
+    const mine = ++seq;
+    let result = [];
+    try {
+      result = await getSuggestions(prefix);
+    } catch (e) {
+      console.error(e);
+    }
+    if (mine !== seq) return; // a newer keystroke already fired
+
+    items = result;
+    paint(prefix);
+  }
+
+  function paint(prefix) {
+    active = -1;
+    list.innerHTML = items.map((q, i) =>
+      `<li role="option" id="opt-${i}" data-i="${i}">${icon}<span>${esc(q.slice(0, prefix.length))}<span class="rest">${esc(q.slice(prefix.length))}</span></span></li>`
+    ).join("");
+    list.hidden = items.length === 0;
+    input.setAttribute("aria-expanded", String(items.length > 0));
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  function highlight() {
+    [...list.children].forEach((li, i) => li.classList.toggle("active", i === active));
+    input.setAttribute("aria-activedescendant", `opt-${active}`);
+  }
+
+  function close() {
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    active = -1;
+  }
+
+  function select(query) {
+    input.value = query;
+    clearBtn.hidden = !query;
+    close();
+    handleQuery(query).catch(e => console.error(e));
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(render, 150); // one request per pause, not per keystroke
+  });
+  input.addEventListener("focus", () => { if (input.value) render(); });
+  input.addEventListener("blur", close);
+
+  input.addEventListener("keydown", e => {
+    if (list.hidden || !items.length) return;
+    const n = items.length;
+    if (e.key === "ArrowDown") { e.preventDefault(); active = (active + 1) % n; highlight(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); active = active <= 0 ? n - 1 : active - 1; highlight(); }
+    else if (e.key === "Escape") { close(); }
+  });
+
+  list.addEventListener("mousedown", e => {
+    const li = e.target.closest("li");
+    if (!li) return;
+    e.preventDefault();
+    select(items[li.dataset.i]);
+  });
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const query = active >= 0 ? items[active] : input.value.trim();
+    if (query) select(query);
+  });
+
+  clearBtn.addEventListener("click", () => {
+    input.value = "";
+    render();
+    input.focus();
+  });
+</script>
+</body>
+</html>
