@@ -1,9 +1,12 @@
 package com.ayush.typeahead.tries;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -68,5 +71,32 @@ class TrieTest {
         trie.insert("messi", 100);
 
         assertTrue(trie.search("zzz").isEmpty());
+    }
+
+    @Test
+    void forEachPrefixVisitsEveryPrefixWithItsTopList() {
+        Trie trie = new Trie();
+        trie.insert("messi", 100);
+        trie.insert("mobile", 80);
+
+        Map<String, List<String>> seen = new HashMap<>();
+        trie.forEachPrefix((prefix, list) -> seen.put(prefix, terms(list)));
+
+        assertEquals(List.of("messi", "mobile"), seen.get("m"));
+        assertEquals(List.of("messi"), seen.get("me"));
+        assertEquals(List.of("mobile"), seen.get("mo"));
+        assertTrue(seen.containsKey("messi"));
+        assertTrue(seen.containsKey("mobile"));
+        assertEquals(10, seen.size());   // m + 4 more for messi + 5 more for mobile
+    }
+
+    @Test
+    void forEachPrefixGivesReadOnlyLists() {
+        Trie trie = new Trie();
+        trie.insert("messi", 100);
+
+        trie.forEachPrefix((prefix, list) ->
+                assertThrows(UnsupportedOperationException.class, () -> list.clear()));
+        assertEquals(List.of("messi"), terms(trie.search("m")));
     }
 }
