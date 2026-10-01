@@ -3,6 +3,8 @@ package com.ayush.typeahead.tries;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.BiConsumer;
 
 
 public class Trie {
@@ -55,6 +57,21 @@ public class Trie {
             }
         }
         return new ArrayList<>(node.suggestions);
+    }
+
+
+    public void forEachPrefix(BiConsumer<String, List<Suggestion>> action) {
+       visit(root, "", action);
+    }
+
+    private void visit(TrieNode node, String prefix, BiConsumer<String, List<Suggestion>> action){
+        for(Map.Entry<Character, TrieNode> entry : node.children.entrySet()){
+             char letter = entry.getKey();
+             TrieNode child = entry.getValue();
+             String childPrefix = prefix + letter;
+             action.accept(childPrefix, List.copyOf(child.suggestions));
+             visit(child, childPrefix, action);
+        }
     }
 
 }
